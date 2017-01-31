@@ -1054,14 +1054,46 @@ MI_CONST MI_ClassDecl MSFT_nxOMSSyslogSource_rtti =
 **==============================================================================
 */
 
-static MI_CONST MI_Boolean MSFT_nxOMSSyslogResource_SyslogSource_Key_qual_value = 1;
+static MI_CONST MI_Boolean MSFT_nxOMSSyslogResource_NameAndWorkspaceID_Key_qual_value = 1;
 
-static MI_CONST MI_Qualifier MSFT_nxOMSSyslogResource_SyslogSource_Key_qual =
+static MI_CONST MI_Qualifier MSFT_nxOMSSyslogResource_NameAndWorkspaceID_Key_qual =
 {
     MI_T("Key"),
     MI_BOOLEAN,
     MI_FLAG_DISABLEOVERRIDE|MI_FLAG_TOSUBCLASS,
-    &MSFT_nxOMSSyslogResource_SyslogSource_Key_qual_value
+    &MSFT_nxOMSSyslogResource_NameAndWorkspaceID_Key_qual_value
+};
+
+static MI_Qualifier MI_CONST* MI_CONST MSFT_nxOMSSyslogResource_NameAndWorkspaceID_quals[] =
+{
+    &MSFT_nxOMSSyslogResource_NameAndWorkspaceID_Key_qual,
+};
+
+/* property MSFT_nxOMSSyslogResource.NameAndWorkspaceID */
+static MI_CONST MI_PropertyDecl MSFT_nxOMSSyslogResource_NameAndWorkspaceID_prop =
+{
+    MI_FLAG_PROPERTY|MI_FLAG_KEY|MI_FLAG_READONLY, /* flags */
+    0x006E6412, /* code */
+    MI_T("NameAndWorkspaceID"), /* name */
+    MSFT_nxOMSSyslogResource_NameAndWorkspaceID_quals, /* qualifiers */
+    MI_COUNT(MSFT_nxOMSSyslogResource_NameAndWorkspaceID_quals), /* numQualifiers */
+    MI_STRING, /* type */
+    NULL, /* className */
+    0, /* subscript */
+    offsetof(MSFT_nxOMSSyslogResource, NameAndWorkspaceID), /* offset */
+    MI_T("MSFT_nxOMSSyslogResource"), /* origin */
+    MI_T("MSFT_nxOMSSyslogResource"), /* propagator */
+    NULL,
+};
+
+static MI_CONST MI_Boolean MSFT_nxOMSSyslogResource_SyslogSource_Write_qual_value = 1;
+
+static MI_CONST MI_Qualifier MSFT_nxOMSSyslogResource_SyslogSource_Write_qual =
+{
+    MI_T("Write"),
+    MI_BOOLEAN,
+    MI_FLAG_ENABLEOVERRIDE|MI_FLAG_TOSUBCLASS,
+    &MSFT_nxOMSSyslogResource_SyslogSource_Write_qual_value
 };
 
 static MI_CONST MI_Char* MSFT_nxOMSSyslogResource_SyslogSource_EmbeddedInstance_qual_value = MI_T("MSFT_nxOMSSyslogSource");
@@ -1076,14 +1108,14 @@ static MI_CONST MI_Qualifier MSFT_nxOMSSyslogResource_SyslogSource_EmbeddedInsta
 
 static MI_Qualifier MI_CONST* MI_CONST MSFT_nxOMSSyslogResource_SyslogSource_quals[] =
 {
-    &MSFT_nxOMSSyslogResource_SyslogSource_Key_qual,
+    &MSFT_nxOMSSyslogResource_SyslogSource_Write_qual,
     &MSFT_nxOMSSyslogResource_SyslogSource_EmbeddedInstance_qual,
 };
 
 /* property MSFT_nxOMSSyslogResource.SyslogSource */
 static MI_CONST MI_PropertyDecl MSFT_nxOMSSyslogResource_SyslogSource_prop =
 {
-    MI_FLAG_PROPERTY|MI_FLAG_KEY|MI_FLAG_READONLY, /* flags */
+    MI_FLAG_PROPERTY, /* flags */
     0x0073650C, /* code */
     MI_T("SyslogSource"), /* name */
     MSFT_nxOMSSyslogResource_SyslogSource_quals, /* qualifiers */
@@ -1099,6 +1131,7 @@ static MI_CONST MI_PropertyDecl MSFT_nxOMSSyslogResource_SyslogSource_prop =
 
 static MI_PropertyDecl MI_CONST* MI_CONST MSFT_nxOMSSyslogResource_props[] =
 {
+    &MSFT_nxOMSSyslogResource_NameAndWorkspaceID_prop,
     &MSFT_nxOMSSyslogResource_SyslogSource_prop,
 };
 
@@ -1858,7 +1891,7 @@ static MI_CONST MI_Qualifier MSFT_nxOMSSyslogResource_Description_qual =
     &MSFT_nxOMSSyslogResource_Description_qual_value
 };
 
-static MI_CONST MI_Char* MSFT_nxOMSSyslogResource_ClassVersion_qual_value = MI_T("2.0.0");
+static MI_CONST MI_Char* MSFT_nxOMSSyslogResource_ClassVersion_qual_value = MI_T("3.0.0");
 
 static MI_CONST MI_Qualifier MSFT_nxOMSSyslogResource_ClassVersion_qual =
 {
