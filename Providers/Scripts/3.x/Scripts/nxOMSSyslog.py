@@ -315,6 +315,14 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
         return False
 
     facility_search = r'(\n+)?(#OMS_Destination.*?25224.*?\n)?(\n)?(#OMS_facility.*?filter.*?_oms.*?log.*destination.*?\n)'
+
+    source_search = r'^source (.*?src).*$'
+    source_re = re.compile(source_search, re.M)
+    source_result = source_re.search(txt)
+    source_expr = 'src'
+    if source_result:
+        source_expr = source_result.group(1)
+
     facility_re = re.compile(facility_search, re.M | re.S)
     txt = facility_re.sub('', txt)
     txt += '\n\n#OMS_Destination\ndestination d_oms { udp("127.0.0.1" port(25224)); };\n'
