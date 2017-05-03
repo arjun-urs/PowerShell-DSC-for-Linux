@@ -21,8 +21,12 @@ oms_rsyslog_conf_path = '/etc/opt/omi/conf/omsconfig/rsyslog-oms.conf'
 conf_path = ''
 
 
-def init_vars(SyslogSource):
+def init_vars(SyslogSource, WorkspaceID):
+    """
+    Initialize global variables for this resource
+    """
     global conf_path
+
     for source in SyslogSource:
         if source['Severities'] is not None:
             if 'value' in dir(source['Severities']):
@@ -42,12 +46,17 @@ def init_vars(SyslogSource):
     LG().Log('INFO', 'Config file is ' + conf_path + '.')
 
 
-def Set_Marshall(SyslogSource):
+def Set_Marshall(SyslogSource, WorkspaceID):
+    """
+    Set the syslog conf for specified workspace on the machine
+    """
     if os.path.exists(sysklog_conf_path):
         LG().Log('ERROR', 'Sysklogd is unsupported.')
         return [0]
-    init_vars(SyslogSource)
-    retval = Set(SyslogSource)
+
+    init_vars(SyslogSource, WorkspaceID)
+    retval = Set(SyslogSource, WorkspaceID)
+
     if retval is False:
         retval = [-1]
     else:
@@ -55,27 +64,38 @@ def Set_Marshall(SyslogSource):
     return retval
 
 
-def Test_Marshall(SyslogSource):
+def Test_Marshall(SyslogSource, WorkspaceID):
+    """
+    Test if the syslog conf for specified workspace matches the provided conf
+    """
     if os.path.exists(sysklog_conf_path):
         LG().Log('ERROR', 'Sysklogd is unsupported.')
         return [0]
-    init_vars(SyslogSource)
-    return Test(SyslogSource)
+
+    init_vars(SyslogSource, WorkspaceID)
+    return Test(SyslogSource, WorkspaceID)
 
 
-def Get_Marshall(SyslogSource):
+def Get_Marshall(SyslogSource, WorkspaceID):
+    """
+    Get the syslog conf for specified workspace from the machine and update
+    the parameters
+    """
     if os.path.exists(sysklog_conf_path):
         LG().Log('ERROR', 'Sysklogd is unsupported.')
         return 0, {'SyslogSource':protocol.MI_InstanceA([])}
+
     arg_names = list(locals().keys())
-    init_vars(SyslogSource)
+    init_vars(SyslogSource, WorkspaceID)
     retval = 0
-    NewSource = Get(SyslogSource)
+    NewSource = Get(SyslogSource, WorkspaceID)
     for source in NewSource:
         if source['Severities'] is not None:
             source['Severities'] = protocol.MI_StringA(source['Severities'])
         source['Facility'] = protocol.MI_String(source['Facility'])
     SyslogSource = protocol.MI_InstanceA(NewSource)
+    WorkspaceID = protocol.MI_String(WorkspaceID)
+
     retd = {}
     ld = locals()
     for k in arg_names:
@@ -83,13 +103,18 @@ def Get_Marshall(SyslogSource):
     return retval, retd
 
 
-def Set(SyslogSource):
-    if Test(SyslogSource) == [0]:
+def Set(SyslogSource, WorkspaceID):
+    """
+    Set the syslog conf for specified workspace on the machine
+    """
+    if Test(SyslogSource, WorkspaceID) == [0]:
         return [0]
+
     if conf_path == oms_syslog_ng_conf_path:
-        ret = UpdateSyslogNGConf(SyslogSource)
+        ret = UpdateSyslogNGConf(SyslogSource, WorkspaceID)
     else:
-        ret = UpdateSyslogConf(SyslogSource)
+        ret = UpdateSyslogConf(SyslogSource, WorkspaceID)
+
     if ret:
         ret = [0]
     else:
@@ -97,17 +122,24 @@ def Set(SyslogSource):
     return ret
 
 
-def Test(SyslogSource):
+def Test(SyslogSource, WorkspaceID):
+    """
+    Test if the syslog conf for specified workspace matches the provided conf
+    """
     if conf_path == oms_syslog_ng_conf_path:
-        NewSource = ReadSyslogNGConf(SyslogSource)
+        NewSource = ReadSyslogNGConf(SyslogSource, WorkspaceID)
     else:
-        NewSource = ReadSyslogConf(SyslogSource)
+        NewSource = ReadSyslogConf(SyslogSource, WorkspaceID)
+
     SyslogSource.sort()
     for d in SyslogSource:
         found = False
-        if 'Severities' not in d.keys() or d['Severities'] is None or len(d['Severities']) is 0:
-            d['Severities'] = ['none']  # redundant?
+        if ('Severities' not in d.keys() or d['Severities'] is None 
+                or len(d['Severities']) is 0):
+            d['Severities'] = ['none']
+
         d['Severities'].sort()
+
     NewSource.sort()
     for n in NewSource:
         n['Severities'].sort()
@@ -116,21 +148,29 @@ def Test(SyslogSource):
     return [0]
 
 
-def Get(SyslogSource):
+def Get(SyslogSource, WorkspaceID):
+    """
+    Get the syslog conf for specified workspace from the machine
+    """
     if conf_path == oms_syslog_ng_conf_path:
-        NewSource = ReadSyslogNGConf(SyslogSource)
+        NewSource = ReadSyslogNGConf(SyslogSource, WorkspaceID)
     else:
-        NewSource = ReadSyslogConf(SyslogSource)
+        NewSource = ReadSyslogConf(SyslogSource, WorkspaceID)
+
     for d in NewSource:
         if d['Severities'] == ['none']:
             d['Severities'] = []
     return NewSource
 
 
-def ReadSyslogConf(SyslogSource):
+def ReadSyslogConf(SyslogSource, WorkspaceID):
+    """
+    Read syslog conf file in rsyslog format for specified workspace and
+    return the relevant facilities and severities
+    """
     out = []
     txt = ''
-    if len(SyslogSource) == 0:
+    if len(SyslogSource) is 0:
         return out
     if not os.path.exists('/etc/rsyslog.d'):
         try:
@@ -148,7 +188,10 @@ def ReadSyslogConf(SyslogSource):
         except:
             LG().Log('ERROR', 'Unable to read ' + src_conf_path + '.')
             return out
-    facility_search = r'^(.*?)@.*?25224$'
+
+    # Find all lines sending to this workspace's port
+    port = ExtractPortSyslogConf(txt, WorkspaceID)
+    facility_search = r'^[^#](.*?)@.*?' + port + '$'
     facility_re = re.compile(facility_search, re.M)
     for line in facility_re.findall(txt):
         l = line.replace('=', '')
@@ -161,7 +204,11 @@ def ReadSyslogConf(SyslogSource):
     return out
 
 
-def UpdateSyslogConf(SyslogSource):
+def UpdateSyslogConf(SyslogSource, WorkspaceID):
+    """
+    Update syslog conf file in rsyslog format with specified facilities and
+    severities for the specified workspace
+    """
     arg = ''
     if 'rsyslog' in conf_path:
         if os.path.exists('/etc/rsyslog.d'):
@@ -170,30 +217,46 @@ def UpdateSyslogConf(SyslogSource):
             arg = '1'
             try:
                 txt = codecs.open(rsyslog_conf_path, 'r', 'utf8').read()
-                LG().Log(
-                    'INFO', 'Successfully read ' + rsyslog_conf_path + '.')
+                LG().Log('INFO', 'Successfully read ' + rsyslog_conf_path + \
+                                 '.')
             except:
                 LG().Log('ERROR', 'Unable to read ' + rsyslog_conf_path + '.')
-    facility_search = r'(#facility.*?\n.*?25224\n)|(^[^#].*?25224\n)'
-    facility_re = re.compile(facility_search, re.M)
-    for t in facility_re.findall(txt):
-        for r in t:
-            txt = txt.replace(r, '')
+
+    # Remove all lines related to this workspace ID (correlated by port)
+    port = ExtractPortSyslogConf(txt, WorkspaceID)
+    workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
+    workspace_comment_search = r'^' + workspace_comment + '.*$'
+    workspace_comment_re = re.compile(workspace_comment_search, re.M)
+    txt = workspace_comment_re.sub('', txt)
+
+    workspace_port_search = r'(#facility.*?\n.*?' + port + '\n)|(^[^#].*?' \
+                        + port + '\n)'
+    workspace_port_re = re.compile(workspace_port_search, re.M)
+    for group in workspace_port_re.findall(txt):
+        for match in group:
+            txt = txt.replace(match, '')
+
+    # Append conf lines for this workspace
+    txt += workspace_comment + ' on port ' + port + '\n'
     for d in SyslogSource:
-        facility_txt = '#facility = ' + d['Facility'] + '\n'
+        facility_txt = ''
         for s in d['Severities']:
             facility_txt += d['Facility'] + '.=' + s + ';'
-        facility_txt = facility_txt[0:-1] + '\t@127.0.0.1:25224\n'
+        facility_txt = facility_txt[0:-1] + '\t@127.0.0.1:' + port + '\n'
         txt += facility_txt
+
+    # Write the new complete txt to the conf file
     try:
         codecs.open(conf_path, 'w', 'utf8').write(txt)
-        LG().Log(
-            'INFO', 'Created omsagent rsyslog configuration at ' + conf_path + '.')
+        LG().Log('INFO', 'Created omsagent rsyslog configuration at ' + \
+                         conf_path + '.')
     except:
-        LG().Log(
-            'ERROR', 'Unable to create omsagent rsyslog configuration at ' + conf_path + '.')
+        LG().Log('ERROR', 'Unable to create omsagent rsyslog configuration ' \
+                          'at ' + conf_path + '.')
         return False
-    if os.system('sudo /opt/microsoft/omsconfig/Scripts/OMSRsyslog.post.sh ' + arg) == 0:
+
+    if os.system('sudo /opt/microsoft/omsconfig/Scripts/OMSRsyslog.post.sh ' \
+                 + arg) is 0:
         LG().Log('INFO', 'Successfully executed OMSRsyslog.post.sh.')
     else:
         LG().Log('ERROR', 'Error executing OMSRsyslog.post.sh.')
@@ -201,7 +264,11 @@ def UpdateSyslogConf(SyslogSource):
     return True
 
 
-def ReadSyslogNGConf(SyslogSource):
+def ReadSyslogNGConf(SyslogSource, WorkspaceID):
+    """
+    Read syslog conf file in syslog-ng format for specified workspace and
+    return the relevant facilities and severities
+    """
     out = []
     txt = ''
     try:
@@ -210,8 +277,17 @@ def ReadSyslogNGConf(SyslogSource):
     except:
         LG().Log('ERROR', 'Unable to read ' + syslog_ng_conf_path + '.')
         return out
-    facility_search = r'^filter f_(?P<facility>.*?)_oms.*?level\((?P<severities>.*?)\)'
-    facility_re = re.compile(facility_search, re.M)
+
+    # Check first if there are conf lines labelled with this workspace ID
+    workspace_id_search = r'^filter f_.*' + WorkspaceID + '_oms'
+    workspace_id_re = re.compile(workspace_id_search, re.M)
+    workspace_found = workspace_id_re.search(txt)
+
+    if workspace_found:
+        facility_re = ParseSyslogNGConfMultiHomed(txt, WorkspaceID)
+    else:
+        facility_re = ParseSyslogNGConf(txt)
+
     for s in facility_re.findall(txt):
         sevs = []
         if len(s[1]):
@@ -219,12 +295,16 @@ def ReadSyslogNGConf(SyslogSource):
                 sevs = s[1].encode('ascii', 'ignore').split(',')
             else:
                 sevs.append(s[1].encode('ascii', 'ignore'))
-        out.append(
-            {'Facility': s[0].encode('ascii', 'ignore'), 'Severities': sevs})
+        out.append({'Facility': s[0].encode('ascii', 'ignore'),
+                    'Severities': sevs})
     return out
 
 
-def UpdateSyslogNGConf(SyslogSource):
+def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
+    """
+    Update syslog conf file in syslog-ng format with specified facilities and
+    severities for the specified workspace
+    """
     txt = ''
     try:
         txt = codecs.open(syslog_ng_conf_path, 'r', 'utf8').read()
@@ -232,40 +312,133 @@ def UpdateSyslogNGConf(SyslogSource):
     except:
         LG().Log('ERROR', 'Unable to read ' + syslog_ng_conf_path + '.')
         return False
-    facility_search = r'(\n+)?(#OMS_Destination.*?25224.*?\n)?(\n)?(#OMS_facility.*?filter.*?_oms.*?log.*destination.*?\n)'
-    facility_re = re.compile(facility_search, re.M | re.S)
-    txt = facility_re.sub('', txt)
-    txt += '\n\n#OMS_Destination\ndestination d_oms { udp("127.0.0.1" port(25224)); };\n'
+
+    # Extract the correct source from the conf file
     source_search = r'^source (.*?src).*$'
     source_re = re.compile(source_search, re.M)
     source_result = source_re.search(txt)
     source_expr = 'src'
     if source_result:
         source_expr = source_result.group(1)
+
+    # Extract the workspace port from the conf file
+    port_search = r'^destination d_' + WorkspaceID + '_oms.*port\(([0-9]*)\)'
+    port_re = re.compile(port_search, re.M)
+    port_result = port_re.search(txt)
+    if port_result:
+        port = str(port_result.group(1))
+    else:
+        port = '25224'
+
+    # Remove all lines related to this workspace ID
+    workspace_comment = '#OMS Workspace ' + WorkspaceID
+    workspace_comment_search = r'(\n+)?(' + workspace_comment + '.*$)'
+    workspace_comment_re = re.compile(workspace_comment_search, re.M)
+    txt = workspace_comment_re.sub('', txt)
+
+    workspace_search = r'(\n+)?(destination.*' + WorkspaceID + '_oms.*\n)?' \
+                        '(\n)*filter.*' + WorkspaceID + '_oms.*\n' \
+                        '(destination.*' + WorkspaceID + '_oms.*\n)?log.*'
+    workspace_re = re.compile(workspace_search)
+    txt = workspace_re.sub('', txt)
+
+    # Remove all OMS-related lines not marked with a workspace ID
+    non_mh_search = r'(\n+)?(#OMS_Destination\ndestination.*_oms.*\n)?(\n)*' \
+                     '#OMS_facility.*\nfilter.*_oms.*\n(destination.*_oms.*' \
+                     '\n)?log.*'
+    non_mh_re = re.compile(non_mh_search)
+    txt = non_mh_re.sub('', txt)
+
+    destination_comment_search = r'(\n+)?#OMS_Destination$'
+    destination_comment_re = re.compile(destination_comment_search, re.M)
+    txt = destination_comment_re.sub('', txt)
+
+    facility_comment_search = r'(\n+)?#OMS_facility = .*$'
+    facility_comment_re = re.compile(facility_comment_search, re.M)
+    txt = facility_comment_re.sub('', txt)
+
+    # Append conf lines for this workspace
+    destination_str = 'd_' + WorkspaceID + '_oms'
+    txt += '\n\n' + workspace_comment + ' Destination\ndestination ' \
+           + destination_str + ' { udp("127.0.0.1" port(' + port + ')); };\n'
     for d in SyslogSource:
-        if 'Severities' not in d.keys() or d['Severities'] is None or len(d['Severities']) is 0:
-            facility_txt = ''
-        else:
-            facility_txt = '\n#OMS_facility = ' + d['Facility'] + '\n'
+        if ('Severities' in d.keys() and d['Severities'] is not None
+                and len(d['Severities']) > 0):
+            facility_txt = '\n' + workspace_comment + ' Facility = ' \
+                           + d['Facility'] + '\n'
             sevs = reduce(lambda x, y: x + ',' + y, d['Severities'])
-            facility_txt += 'filter f_' + \
-                d['Facility'] + \
-                '_oms { level(' + sevs + ') and facility(' + d[
-                    'Facility'] + '); };\n'
-            facility_txt += 'log { source(' + source_expr + '); filter(f_' + d[
-                'Facility'] + '_oms); destination(d_oms); };\n'
+            filter_str = 'f_' + d['Facility'] + '_' + WorkspaceID + '_oms'
+            facility_txt += 'filter ' + filter_str + ' { level(' + sevs \
+                            + ') and facility(' + d['Facility'] + '); };\n'
+            facility_txt += 'log { source(' + source_expr + '); filter(' \
+                            + filter_str + '); destination(' \
+                            + destination_str + '); };\n'
             txt += facility_txt
+
+    # Write the new complete txt to the conf file
     try:
         codecs.open(conf_path, 'w', 'utf8').write(txt)
-        LG().Log(
-            'INFO', 'Created omsagent syslog-ng configuration at ' + conf_path + '.')
+        LG().Log('INFO', 'Created omsagent syslog-ng configuration at ' + \
+                         conf_path + '.')
     except:
-        LG().Log(
-            'ERROR', 'Unable to create omsagent syslog-ng configuration at ' + conf_path + '.')
+        LG().Log('ERROR', 'Unable to create omsagent syslog-ng configuration ' \
+                          'at ' + conf_path + '.')
         return False
-    if os.system('sudo /opt/microsoft/omsconfig/Scripts/OMSSyslog-ng.post.sh') == 0:
+
+    if os.system('sudo /opt/microsoft/omsconfig/Scripts/' \
+                 'OMSSyslog-ng.post.sh') is 0:
         LG().Log('INFO', 'Successfully executed OMSSyslog-ng.post.sh.')
     else:
         LG().Log('ERROR', 'Error executing OMSSyslog-ng.post.sh.')
         return False
+
     return True
+
+
+def GetSyslogConfMultiHomedHeaderString(WorkspaceID):
+    """
+    Return the header for the multi-homed section from an rsyslog conf file
+    """
+    return '# OMS Syslog collection for workspace ' + WorkspaceID
+
+
+def ExtractPortSyslogConf(txt, WorkspaceID):
+    """
+    Returns the port used for this workspace's syslog collection from an
+    rsyslog conf file
+    """
+    workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
+    port_search = r'' + workspace_comment + '\n[^#].*?([0-9]*)$'
+    port_re = re.compile(port_search, re.M)
+    port_comment_search = r'' + workspace_comment + ' on port ([0-9]*)$'
+    port_comment_re = re.compile(port_comment_search, re.M)
+
+    port_result = port_re.search(txt)
+    port_comment_result = port_comment_re.search(txt)
+    if port_result:
+        port = str(port_result.group(1))
+    elif port_comment_result:
+        port = str(port_comment_result.group(1))
+    else:
+        port = '25224'
+
+    return port
+
+
+def ParseSyslogNGConfMultiHomed(txt, WorkspaceID):
+    """
+    Returns a search to extract facilities and severities for the specified
+    workspace for syslog-ng format
+    """
+    facility_search = r'^filter f_(?P<facility>.*?)_' + WorkspaceID + '_oms.*?level\((?P<severities>.*?)\)'
+    return re.compile(facility_search, re.M)
+
+
+def ParseSyslogNGConf(txt):
+    """
+    Returns a search to extract facilities and severities for the default
+    workspace for syslog-ng format
+    """
+    facility_search = r'^filter f_(?P<facility>.*?)_oms.*?level' \
+                       '\((?P<severities>.*?)\)'
+    return re.compile(facility_search, re.M)

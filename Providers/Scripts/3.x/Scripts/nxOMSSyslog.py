@@ -20,7 +20,6 @@ sysklog_conf_path='/etc/syslog.conf'
 oms_syslog_ng_conf_path = '/etc/opt/omi/conf/omsconfig/syslog-ng-oms.conf'
 oms_rsyslog_conf_path = '/etc/opt/omi/conf/omsconfig/rsyslog-oms.conf'
 conf_path = ''
-multi_homed = None
 
 
 def init_vars(SyslogSource, WorkspaceID):
@@ -28,7 +27,6 @@ def init_vars(SyslogSource, WorkspaceID):
     Initialize global variables for this resource
     """
     global conf_path
-    global multi_homed
 
     for source in SyslogSource:
         if source['Severities'] is not None:
@@ -44,9 +42,6 @@ def init_vars(SyslogSource, WorkspaceID):
         LG().Log('ERROR', 'Unable to find OMS config files.')
         raise Exception('Unable to find OMS config files.')
     LG().Log('INFO', 'Config file is ' + conf_path + '.')
-
-    omsagent_dir = '/etc/opt/microsoft/omsagent/'
-    multi_homed = os.path.isdir(omsagent_dir + WorkspaceID + '/conf')
 
 
 def Set_Marshall(SyslogSource, WorkspaceID):
@@ -134,7 +129,7 @@ def Test(SyslogSource, WorkspaceID):
     else:
         NewSource = ReadSyslogConf(SyslogSource, WorkspaceID)
 
-    SyslogSource=sorted(SyslogSource, key=lambda k: k['Facility'])
+    SyslogSource = sorted(SyslogSource, key=lambda k: k['Facility'])
     for d in SyslogSource:
         found = False
         if ('Severities' not in d.keys() or d['Severities'] is None 
@@ -142,8 +137,8 @@ def Test(SyslogSource, WorkspaceID):
             d['Severities'] = ['none']
 
         d['Severities'].sort()
-    NewSource=sorted(NewSource, key=lambda k: k['Facility'])
 
+    NewSource = sorted(NewSource, key=lambda k: k['Facility'])
     for n in NewSource:
         n['Severities'].sort()
     if SyslogSource != NewSource:
@@ -192,12 +187,11 @@ def ReadSyslogConf(SyslogSource, WorkspaceID):
             LG().Log('ERROR', 'Unable to read ' + src_conf_path + '.')
             return out
 
-    if multi_homed:
-        lines = ParseSyslogConfMultiHomed(txt, WorkspaceID)
-    else:
-        lines = ParseSyslogConf(txt)
-
-    for line in lines:
+    # Find all lines sending to this workspace's port
+    port = ExtractPortSyslogConf(txt, WorkspaceID)
+    facility_search = r'^[^#](.*?)@.*?' + port + '$'
+    facility_re = re.compile(facility_search, re.M)
+    for line in facility_re.findall(txt):
         l = line.replace('=', '')
         l = l.replace('\t', '').split(';')
         sevs = []
@@ -226,35 +220,28 @@ def UpdateSyslogConf(SyslogSource, WorkspaceID):
             except:
                 LG().Log('ERROR', 'Unable to read ' + rsyslog_conf_path + '.')
 
-    workspace_section = txt
-    if multi_homed:
-        workspace_section = ExtractSyslogConfSectionForWorkspace(txt,
-                                                                 WorkspaceID)
-    new_workspace_section = workspace_section
+    # Remove all lines related to this workspace ID (correlated by port)
+    port = ExtractPortSyslogConf(txt, WorkspaceID)
+    workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
+    workspace_comment_search = r'^' + workspace_comment + '.*$'
+    workspace_comment_re = re.compile(workspace_comment_search, re.M)
+    txt = workspace_comment_re.sub('', txt)
 
-    port_search = r'^.*@[0-9\.]*:([0-9]*)$'
-    port_re = re.compile(port_search, re.M)
-    port = port_re.search(workspace_section).group(1)
+    workspace_port_search = r'(#facility.*?\n.*?' + port + '\n)|(^[^#].*?' \
+                        + port + '\n)'
+    workspace_port_re = re.compile(workspace_port_search, re.M)
+    for group in workspace_port_re.findall(txt):
+        for match in group:
+            txt = txt.replace(match, '')
 
-    # Remove every line in the section that gives facility, severity, and port
-    facility_search = r'(#facility.*?\n.*?' + port + '\n)|(^[^#].*?' + \
-                       port + '\n)'
-    facility_re = re.compile(facility_search, re.M)
-    for t in facility_re.findall(new_workspace_section):
-        for r in t:
-            new_workspace_section = new_workspace_section.replace(r, '')
-
-    # Add each new facility/severity with extracted port to the updated section
+    # Append conf lines for this workspace
+    txt += workspace_comment + ' on port ' + port + '\n'
     for d in SyslogSource:
-        facility_txt = '#facility = ' + d['Facility'] + '\n'
+        facility_txt = ''
         for s in d['Severities']:
             facility_txt += d['Facility'] + '.=' + s + ';'
         facility_txt = facility_txt[0:-1] + '\t@127.0.0.1:' + port + '\n'
-        new_workspace_section += facility_txt
-
-    # Replace the old section with the newly formed section in the conf file
-    # If the agent is not multi-homed, this will replace the entire txt
-    txt.replace(workspace_section, new_workspace_section)
+        txt += facility_txt
 
     # Write the new complete txt to the conf file
     try:
@@ -386,6 +373,7 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
                             + destination_str + '); };\n'
             txt += facility_txt
 
+    # Write the new complete txt to the conf file
     try:
         codecs.open(conf_path, 'w', 'utf8').write(txt)
         LG().Log('INFO', 'Created omsagent syslog-ng configuration at ' + \
@@ -405,76 +393,35 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
     return True
 
 
-def ParseSyslogConf(txt):
+def GetSyslogConfMultiHomedHeaderString(WorkspaceID):
     """
-    Returns an array of the facilities and severities for the default workspace
-    in this format: ['kern.warning\t', 'user.warning\t']
+    Return the header for the multi-homed section from an rsyslog conf file
     """
-    facility_search = r'^(.*?)@.*?25224$'
-    facility_re = re.compile(facility_search, re.M)
-    return facility_re.findall(txt)
+    return '# OMS Syslog collection for workspace ' + WorkspaceID
 
 
-def ParseSyslogConfMultiHomed(txt, WorkspaceID):
+def ExtractPortSyslogConf(txt, WorkspaceID):
     """
-    Returns an array of the facilities and severities for the specified
-    workspace in this format: ['kern.warning\t', 'user.warning\t']
+    Returns the port used for this workspace's syslog collection from an
+    rsyslog conf file
     """
-    search = SearchSyslogConfMultiHomed(txt, WorkspaceID)
-    if search is -1:
-        return ParseSyslogConf(txt)
-    elif search is None:
-        return []
+    workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
+    port_search = r'' + workspace_comment + '\n[^#].*?([0-9]*)$'
+    port_re = re.compile(port_search, re.M)
+    port_comment_search = r'' + workspace_comment + ' on port ([0-9]*)$'
+    port_comment_re = re.compile(port_comment_search, re.M)
 
-    facilities_str = search.group(1)
-    facility_search = r'^(.*?)@[0-9\.\:]*$'
-    facility_re = re.compile(facility_search, re.M)
-    return facility_re.findall(facilities_str)
-
-
-def ExtractSyslogConfSectionForWorkspace(txt, WorkspaceID):
-    """
-    Returns a string containing only the section of txt that applies to the
-    workspace specified by WorkspaceID
-    """
-    search = SearchSyslogConfMultiHomed(txt, WorkspaceID)
-    if search is None:
-        return ''
+    port_result = port_re.search(txt)
+    port_comment_result = port_comment_re.search(txt)
+    if port_result:
+        port = str(port_result.group(1))
+    elif port_comment_result:
+        port = str(port_comment_result.group(1))
     else:
-        return search.group()
+        port = '25224'
 
+    return port
 
-def SearchSyslogConfMultiHomed(txt, WorkspaceID, replace_text = None):
-    """
-    Search txt in rsyslog format for multi-homed section labelled with
-    the provided WorkspaceID
-    If replace_text is specified, then the section in txt will be replaced
-    with replace_text and the updated txt will be returned
-    """
-    header_str = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
-    header_search = r'^' + header_str + '$'
-    header_re = re.compile(header_search, re.M)
-    mh_header = header_re.search(txt)
-
-    if mh_header is None: # the expected multi-homing header was not found
-        LG().Log('ERROR', 'Expected multi-homing header was not found in ' \
-                          'syslog conf')
-        return -1
-
-    workspace_re = CreateSearchSyslogMultiHomed(WorkspaceID)
-    workspace_facilities = workspace_re.search(txt)
-    return workspace_facilities
-
-
-def CreateSearchSyslogMultiHomed(WorkspaceID):
-    """
-    Create a regex search over an rsyslog conf file for the multi-homed section
-    labelled with the provided WorkspaceID
-    """
-    header_str = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
-    # Max number of facility/severity combos: 8 levels * 19 facilities = 152
-    workspace_search = r'^' + header_str + '\n((.*@[0-9\.\:]*\n){1,160})'
-    return re.compile(workspace_search, re.M)
 
 def ParseSyslogNGConfMultiHomed(txt, WorkspaceID):
     """
@@ -484,6 +431,7 @@ def ParseSyslogNGConfMultiHomed(txt, WorkspaceID):
     facility_search = r'^filter f_(?P<facility>.*?)_' + WorkspaceID + '_oms.*?level\((?P<severities>.*?)\)'
     return re.compile(facility_search, re.M)
 
+
 def ParseSyslogNGConf(txt):
     """
     Returns a search to extract facilities and severities for the default
@@ -492,10 +440,3 @@ def ParseSyslogNGConf(txt):
     facility_search = r'^filter f_(?P<facility>.*?)_oms.*?level' \
                        '\((?P<severities>.*?)\)'
     return re.compile(facility_search, re.M)
-
-
-def GetSyslogConfMultiHomedHeaderString(WorkspaceID):
-    """
-    Return the header for the multi-homed section from an rsyslog conf file
-    """
-    return '# OMS Syslog collection for workspace ' + WorkspaceID
