@@ -160,7 +160,7 @@ fi
 #endif
 
 %Preinstall_200
-tmpfile=`mktemp`
+tmpfile=`mktemp --tmpdir=$PWD`
 printf "Checking for ctypes python module..."
 cat <<EOF > $tmpfile
 #!/usr/bin/python
