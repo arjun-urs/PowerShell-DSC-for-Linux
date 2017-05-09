@@ -20,6 +20,7 @@ sysklog_conf_path='/etc/syslog.conf'
 oms_syslog_ng_conf_path = '/etc/opt/omi/conf/omsconfig/syslog-ng-oms.conf'
 oms_rsyslog_conf_path = '/etc/opt/omi/conf/omsconfig/rsyslog-oms.conf'
 conf_path = ''
+default_port = '25224'
 
 
 def init_vars(SyslogSource, WorkspaceID):
@@ -129,7 +130,7 @@ def Test(SyslogSource, WorkspaceID):
     else:
         NewSource = ReadSyslogConf(SyslogSource, WorkspaceID)
 
-    SyslogSource = sorted(SyslogSource, key=lambda k: k['Facility'])
+    SyslogSource=sorted(SyslogSource, key=lambda k: k['Facility'])
     for d in SyslogSource:
         found = False
         if ('Severities' not in d.keys() or d['Severities'] is None 
@@ -138,7 +139,7 @@ def Test(SyslogSource, WorkspaceID):
 
         d['Severities'].sort()
 
-    NewSource = sorted(NewSource, key=lambda k: k['Facility'])
+    NewSource=sorted(NewSource, key=lambda k: k['Facility'])
     for n in NewSource:
         n['Severities'].sort()
     if SyslogSource != NewSource:
@@ -188,7 +189,7 @@ def ReadSyslogConf(SyslogSource, WorkspaceID):
             return out
 
     # Find all lines sending to this workspace's port
-    port = ExtractPortSyslogConf(txt, WorkspaceID)
+    port = ExtractPortFromFluentDConf(WorkspaceID)
     facility_search = r'^[^#](.*?)@.*?' + port + '$'
     facility_re = re.compile(facility_search, re.M)
     for line in facility_re.findall(txt):
@@ -221,7 +222,7 @@ def UpdateSyslogConf(SyslogSource, WorkspaceID):
                 LG().Log('ERROR', 'Unable to read ' + rsyslog_conf_path + '.')
 
     # Remove all lines related to this workspace ID (correlated by port)
-    port = ExtractPortSyslogConf(txt, WorkspaceID)
+    port = ExtractPortFromFluentDConf(WorkspaceID)
     workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
     workspace_comment_search = r'^' + workspace_comment + '.*$'
     workspace_comment_re = re.compile(workspace_comment_search, re.M)
@@ -235,7 +236,7 @@ def UpdateSyslogConf(SyslogSource, WorkspaceID):
             txt = txt.replace(match, '')
 
     # Append conf lines for this workspace
-    txt += workspace_comment + ' on port ' + port + '\n'
+    txt += workspace_comment + '\n'
     for d in SyslogSource:
         facility_txt = ''
         for s in d['Severities']:
@@ -318,16 +319,9 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
     if source_result:
         source_expr = source_result.group(1)
 
-    # Extract the workspace port from the conf file
-    port_search = r'^destination d_' + WorkspaceID + '_oms.*port\(([0-9]*)\)'
-    port_re = re.compile(port_search, re.M)
-    port_result = port_re.search(txt)
-    if port_result:
-        port = str(port_result.group(1))
-    else:
-        port = '25224'
+    port = ExtractPortFromFluentDConf(WorkspaceID)
 
-    # Remove all lines related to this workspace ID
+    # Remove all lines related to this workspace ID/port
     workspace_comment = '#OMS Workspace ' + WorkspaceID
     workspace_comment_search = r'(\n+)?(' + workspace_comment + '.*$)'
     workspace_comment_re = re.compile(workspace_comment_search, re.M)
@@ -338,6 +332,10 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
                         '(destination.*' + WorkspaceID + '_oms.*\n)?log.*'
     workspace_re = re.compile(workspace_search)
     txt = workspace_re.sub('', txt)
+
+    port_search = r'(^.*oms.*port\(' + port + '\).*$)'
+    port_re = re.compile(port_search, re.M)
+    txt = port_re.sub('', txt)
 
     # Remove all OMS-related lines not marked with a workspace ID
     non_mh_search = r'(\n+)?(#OMS_Destination\ndestination.*_oms.*\n)?(\n)*' \
@@ -358,7 +356,6 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
     destination_str = 'd_' + WorkspaceID + '_oms'
     txt += '\n\n' + workspace_comment + ' Destination\ndestination ' \
            + destination_str + ' { udp("127.0.0.1" port(' + port + ')); };\n'
->>>>>>> 7d7e88b... Make sure to add Eric Gable to the PR since he's the only one who's actually worked on this code
     for d in SyslogSource:
         if ('Severities' in d.keys() and d['Severities'] is not None
                 and len(d['Severities']) > 0):
@@ -400,26 +397,43 @@ def GetSyslogConfMultiHomedHeaderString(WorkspaceID):
     return '# OMS Syslog collection for workspace ' + WorkspaceID
 
 
-def ExtractPortSyslogConf(txt, WorkspaceID):
+def ExtractPortFromFluentDConf(WorkspaceID)
     """
-    Returns the port used for this workspace's syslog collection from an
-    rsyslog conf file
+    Returns the port used for this workspace's syslog collection from the
+    FluentD configuration file:
+    If multi-homed:
+    /etc/opt/microsoft/omsagent/<workspace-ID>/conf/omsagent.d/syslog.conf
+    if not multi-homed:
+    /etc/opt/microsoft/omsagent/conf/omsagent.conf
     """
-    workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
-    port_search = r'' + workspace_comment + '\n[^#].*?([0-9]*)$'
-    port_re = re.compile(port_search, re.M)
-    port_comment_search = r'' + workspace_comment + ' on port ([0-9]*)$'
-    port_comment_re = re.compile(port_comment_search, re.M)
+    omsagent_dir = '/etc/opt/microsoft/omsagent/'
+    fluentd_syslog_conf = 'conf/omsagent.d/syslog.conf'
+    fluentd_omsagent_conf = 'conf/omsagent.conf'
+    if os.path.exists(omsagent_dir + WorkspaceID + '/' + fluentd_syslog_conf):
+        port_path = omsagent_dir + WorkspaceID + '/' + fluentd_syslog_conf
+    elif os.path.exists(omsagent_dir + fluentd_omsagent_conf):
+        port_path = omsagent_dir + fluentd_omsagent_conf
+    else:
+        LG().Log('ERROR', 'No FluentD syslog configuration found: using ' \
+                          'default syslog port ' + default_port + '.')
+        return default_port
 
+    try:
+        txt = codecs.open(port_path, 'r', 'utf8').read()
+    except:
+        LG().Log('ERROR', 'Unable to read ' + port_path + ': using default ' \
+                          'syslog port ' + default_port + '.')
+        return default_port
+
+    port_search = r'^<source>.*type syslog[^#]*port ([0-9]*)\n.*</source>$'
+    port_re = re.compile(port_search, re.M | re.S)
     port_result = port_re.search(txt)
-    port_comment_result = port_comment_re.search(txt)
     if port_result:
         port = str(port_result.group(1))
-    elif port_comment_result:
-        port = str(port_comment_result.group(1))
     else:
-        port = '25224'
-
+        LG().Log('ERROR', 'No port found in ' + port_path + ': using ' \
+                          'default syslog port ' + default_port + '.')
+        port = default_port
     return port
 
 
