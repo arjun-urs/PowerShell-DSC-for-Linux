@@ -400,7 +400,7 @@ def GetSyslogConfMultiHomedHeaderString(WorkspaceID):
     return '# OMS Syslog collection for workspace ' + WorkspaceID
 
 
-def ExtractPortFromFluentDConf(WorkspaceID)
+def ExtractPortFromFluentDConf(WorkspaceID):
     """
     Returns the port used for this workspace's syslog collection from the
     FluentD configuration file:
