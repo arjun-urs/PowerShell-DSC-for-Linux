@@ -229,6 +229,11 @@ def UpdateSyslogConf(SyslogSource, WorkspaceID):
         for match in group:
             txt = txt.replace(match, '')
 
+    # Remove all OMS-related lines not marked with a workspace ID
+    comment_search = r'^# OMS Syslog collection$'
+    comment_re = re.compile(comment_search, re.M)
+    txt = comment_re.sub('', txt)
+
     # Append conf lines for this workspace
     txt += workspace_comment + '\n'
     for d in SyslogSource:
@@ -413,7 +418,7 @@ def ExtractPortFromFluentDConf(WorkspaceID):
 
     try:
         txt = codecs.open(port_path, 'r', 'utf8').read()
-        LG().Log('INFO', 'Succesfully read ' + port_path + 'for syslog port.')
+        LG().Log('INFO', 'Succesfully read ' + port_path + ' for syslog port.')
     except:
         LG().Log('ERROR', 'Unable to read ' + port_path + ': using default ' \
                           'syslog port ' + default_port + '.')
