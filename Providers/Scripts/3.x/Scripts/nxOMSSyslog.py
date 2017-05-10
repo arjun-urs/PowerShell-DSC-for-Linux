@@ -171,22 +171,15 @@ def ReadSyslogConf(SyslogSource, WorkspaceID):
     txt = ''
     if len(SyslogSource) is 0:
         return out
-    if not os.path.exists('/etc/rsyslog.d'):
-        try:
-            txt = codecs.open(rsyslog_conf_path, 'r', 'utf8').read()
-            LG().Log('INFO', 'Successfully read ' + rsyslog_conf_path + '.')
-        except:
-            LG().Log('ERROR', 'Unable to read ' + rsyslog_conf_path + '.')
-    else:
-        src_conf_path = conf_path
-        if os.path.exists(rsyslog_inc_conf_path):
-            src_conf_path = rsyslog_inc_conf_path
-        try:
-            txt = codecs.open(src_conf_path, 'r', 'utf8').read()
-            LG().Log('INFO', 'Successfully read ' + src_conf_path + '.')
-        except:
-            LG().Log('ERROR', 'Unable to read ' + src_conf_path + '.')
-            return out
+
+    # Read text from syslog conf file
+    src_conf_path = GetSyslogConfPath()
+    try:
+        txt = codecs.open(src_conf_path, 'r', 'utf8').read()
+        LG().Log('INFO', 'Successfully read ' + src_conf_path + '.')
+    except:
+        LG().Log('ERROR', 'Unable to read ' + src_conf_path + '.')
+        return out
 
     # Find all lines sending to this workspace's port
     port = ExtractPortFromFluentDConf(WorkspaceID)
@@ -208,18 +201,19 @@ def UpdateSyslogConf(SyslogSource, WorkspaceID):
     Update syslog conf file in rsyslog format with specified facilities and
     severities for the specified workspace
     """
-    arg = ''
-    if 'rsyslog' in conf_path:
-        if os.path.exists('/etc/rsyslog.d'):
-            txt = ''
-        elif os.path.exists(rsyslog_conf_path):
-            arg = '1'
-            try:
-                txt = codecs.open(rsyslog_conf_path, 'r', 'utf8').read()
-                LG().Log('INFO', 'Successfully read ' + rsyslog_conf_path + \
-                                 '.')
-            except:
-                LG().Log('ERROR', 'Unable to read ' + rsyslog_conf_path + '.')
+    # Read text from syslog conf file
+    src_conf_path = GetSyslogConfPath()
+    if src_conf_path == rsyslog_conf_path:
+        arg = '1'
+    else:
+        arg = ''
+
+    try:
+        txt = codecs.open(src_conf_path, 'r', 'utf8').read()
+        LG().Log('INFO', 'Successfully read ' + src_conf_path + '.')
+    except: 
+        LG().Log('ERROR', 'Unable to read ' + src_conf_path + '.')
+        return False
 
     # Remove all lines related to this workspace ID (correlated by port)
     port = ExtractPortFromFluentDConf(WorkspaceID)
@@ -293,7 +287,7 @@ def ReadSyslogNGConf(SyslogSource, WorkspaceID):
             if ',' in s[1]:
                 sevs = s[1].split(',')
             else:
-                sevs.append(s[1])
+                sevs.append(s[1].encode('ascii', 'ignore'))
         out.append({'Facility': s[0], 'Severities': sevs})
     return out
 
@@ -303,7 +297,6 @@ def UpdateSyslogNGConf(SyslogSource, WorkspaceID):
     Update syslog conf file in syslog-ng format with specified facilities and
     severities for the specified workspace
     """
-    txt = ''
     try:
         txt = codecs.open(syslog_ng_conf_path, 'r', 'utf8').read()
         LG().Log('INFO', 'Successfully read ' + syslog_ng_conf_path + '.')
@@ -420,6 +413,7 @@ def ExtractPortFromFluentDConf(WorkspaceID):
 
     try:
         txt = codecs.open(port_path, 'r', 'utf8').read()
+        LG().Log('INFO', 'Succesfully read ' + port_path + 'for syslog port.')
     except:
         LG().Log('ERROR', 'Unable to read ' + port_path + ': using default ' \
                           'syslog port ' + default_port + '.')
@@ -435,6 +429,19 @@ def ExtractPortFromFluentDConf(WorkspaceID):
                           'default syslog port ' + default_port + '.')
         port = default_port
     return port
+
+
+def GetSyslogConfPath():
+    """
+    Determine the correct rsyslog conf file path to read/update OMS
+    configuration in
+    """
+    if not os.path.exists('/etc/rsyslog.d'):
+        return rsyslog_conf_path
+    elif os.path.exists(rsyslog_inc_conf_path):
+        return rsyslog_inc_conf_path
+    else:
+        return conf_path
 
 
 def ParseSyslogNGConfMultiHomed(txt, WorkspaceID):
