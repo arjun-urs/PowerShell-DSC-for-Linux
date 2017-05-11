@@ -220,19 +220,19 @@ def UpdateSyslogConf(SyslogSource, WorkspaceID):
     # Remove all lines related to this workspace ID (correlated by port)
     port = ExtractPortFromFluentDConf(WorkspaceID)
     workspace_comment = GetSyslogConfMultiHomedHeaderString(WorkspaceID)
-    workspace_comment_search = r'^' + workspace_comment + '.*$'
+    workspace_comment_search = r'(\n+)?(' + workspace_comment + '.*)$'
     workspace_comment_re = re.compile(workspace_comment_search, re.M)
     txt = workspace_comment_re.sub('', txt)
 
-    workspace_port_search = r'(#facility.*?\n.*?' + port + '\n)|(^[^#].*?' \
-                        + port + '\n)'
+    workspace_port_search = r'(\n+)?(#facility.*?\n.*?' + port + '\n)|(^[^#]' \
+                             '.*?' + port + '\n)'
     workspace_port_re = re.compile(workspace_port_search, re.M)
     for group in workspace_port_re.findall(txt):
         for match in group:
             txt = txt.replace(match, '')
 
     # Remove all OMS-related lines not marked with a workspace ID
-    comment_search = r'^# OMS Syslog collection$'
+    comment_search = r'(\n+)?(# OMS Syslog collection)$'
     comment_re = re.compile(comment_search, re.M)
     txt = comment_re.sub('', txt)
 
