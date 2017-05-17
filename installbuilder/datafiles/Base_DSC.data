@@ -169,14 +169,16 @@ EOF
 
 chmod u+x $tmpfile
 $tmpfile 1> /dev/null 2> /dev/null
-if [ $? -ne 0 ]; then
+tmpfile_ctypes=$?
+rm $tmpfile
+
+python -c "import ctypes" 1> /dev/null 2> /dev/null
+if [ $? -ne 0 -a $tmpfile_ctypes -ne 0 ]; then
     echo "Error: Python does not support ctypes on this system.  Please install the ctypes module for Python or upgrade to a newer version of python that comes with the ctypes module."
     echo "Please remove the omi package and try again after installing the ctypes module or upgrading Python.  You can check if the ctypes module is installed by starting python and running the command: 'import ctypes'"
-	rm $tmpfile
     exit 1
 else
     echo "ok!"
-	rm $tmpfile
 fi
 
 %Postinstall_10
